@@ -197,60 +197,57 @@ describe('IoT Provisioning', function() {
     register: registerX509Group,
     cleanup: cleanupX509Group,
     transports: [Http]
-  }].forEach(function(testConfiguration) {
+  }].forEach(function(config) {
 
-    describe(testConfiguration.testDescription, function() {
-      var deviceId;
-      var registrationId;
+    describe(config.testDescription, function() {
       this.timeout(30000);
 
       beforeEach (function() {
         var id = uuid.v4();
-        deviceId = 'deleteme_provisioning_node_e2e_' + id;
-        registrationId = 'reg-' + id;
+        config.deviceId = 'deleteme_provisioning_node_e2e_' + id;
+        config.registrationId = 'reg-' + id;
+        config.groupId = 'group-' + id;
       });
 
       afterEach(function(callback) {
-        testConfiguration.cleanup(registrationId, deviceId, callback);
+        config.cleanup(config, callback);
       });
 
-      testConfiguration.transports.forEach(function (Transport) {
+      config.transports.forEach(function (Transport) {
         it ('can create an enrollment, register it using ' + Transport.name + ', and verify twin contents', function(callback) {
-          var deviceCert;
 
           async.waterfall([
             function(callback) {
               debug('creating x509 certificate');
-              testConfiguration.createCert(registrationId, callback);
+              config.createCert(config, callback);
             },
             function(cert, callback) {
-              deviceCert = cert;
               debug('enrolling');
-              testConfiguration.enroll(registrationId, deviceId, deviceCert, callback);
+              config.enroll(config, callback);
             },
             function(callback) {
               debug('verifying registration status is unassigned');
-              assertRegistrationStatus(registrationId, 'unassigned',null, callback);
+              assertRegistrationStatus(config.registrationId, 'unassigned', null, callback);
             },
             function(callback) {
               debug('registering device');
-              testConfiguration.register(Transport, registrationId, deviceCert, callback);
+              config.register(Transport, config, callback);
             },
             function(result, callback) {
               debug('success registering device');
               debug(JSON.stringify(result,null,'  '));
               debug('verifying registration status is assigned');
-              assertRegistrationStatus(registrationId, 'assigned', deviceId, callback);
+              assertRegistrationStatus(config.registrationId, 'assigned', config.deviceId, callback);
             },
             function(callback) {
               debug('getting twin');
-              registry.getTwin(deviceId,function(err, twin) {
+              registry.getTwin(config.deviceId,function(err, twin) {
                 callback(err, twin);
               });
             },
             function(twin, callback) {
               debug('asserting twin contents');
-              assert.strictEqual(twin.properties.desired.testProp, registrationId + ' ' + deviceId);
+              assert.strictEqual(twin.properties.desired.testProp, config.registrationId + ' ' + config.deviceId);
               callback();
             }
           ], callback);
