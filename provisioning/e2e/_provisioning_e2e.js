@@ -95,6 +95,23 @@ var enrollX509Indivitual = function(registrationId, deviceId, x509, callback) {
   });
 };
 
+var cleanupX509Individual = function(registrationId, deviceId, callback) {
+  debug('deleting enrollment');
+  provisioningServiceClient.deleteIndividualEnrollment(registrationId, function(err) {
+    if (err) {
+      debug('ignoring deleteIndividualEnrollment error');
+    }
+    debug('deleting device');
+    registry.delete(deviceId, function(err) {
+      if (err) {
+        debug('ignoring delete error');
+      }
+      debug('done X509 individual cleanup');
+      callback();
+    });
+  });
+};
+
 var assertRegistrationStatus = function(registrationId, expectedStatus, expectedDeviceId, callback) {
   provisioningServiceClient.getIndividualEnrollment(registrationId, function(err, enrollment) {
     assert(!err);
@@ -118,23 +135,11 @@ describe('IoT Provisioning', function() {
     deviceId = 'deleteme_provisioning_node_e2e_' + id;
     registrationId = 'reg-' + id;
   });
-
-  afterEach (function(callback) {
-    debug('deleting enrollment');
-    provisioningServiceClient.deleteIndividualEnrollment(registrationId, function(err) {
-      if (err) {
-        debug('ignoring deleteIndividualEnrollment error');
-      }
-      debug('deleting device');
-      registry.delete(deviceId, function(err) {
-        if (err) {
-          debug('ignoring delete error');
-        }
-        debug('done with per-test cleanup');
-        callback();
-      });
-    });
+  
+  afterEach(function(callback) {
+    cleanupX509Individual(registrationId, deviceId, callback);
   });
+
 
   x509provisioningTransports.forEach(function (Transport) {
     it ('can create an x509 enrollment, register it using ' + Transport.name + ', and verify twin contents', function(callback) {
@@ -146,6 +151,7 @@ describe('IoT Provisioning', function() {
           createX509IndividualDeviceCert(registrationId, callback);
         },
         function(cert, callback) {
+          x509cert = cert;
           debug('enrolling');
           enrollX509Indivitual(registrationId, deviceId, cert, callback);
         },
@@ -158,7 +164,9 @@ describe('IoT Provisioning', function() {
           var securityClient = new X509Security(x509cert);
           var transport = new Transport(idScope);
           var provisioningDeviceClient = ProvisioningDeviceClient.create(transport, securityClient);
-          provisioningDeviceClient.register(registrationId, false, callback);
+          provisioningDeviceClient.register(registrationId, false, function(err, result) {
+            callback(err, result);
+          });
         },
         function(result, callback) {
           debug('success registering device');
@@ -168,7 +176,9 @@ describe('IoT Provisioning', function() {
         },
         function(callback) {
           debug('getting twin');
-          registry.getTwin(deviceId,callback);
+          registry.getTwin(deviceId,function(err, twin) {
+            callback(err, twin);
+          });
         },
         function(twin, callback) {
           debug('asserting twin contents');
