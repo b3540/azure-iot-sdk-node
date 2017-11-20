@@ -38,26 +38,6 @@ var createX509Certificate = function(certOptions, callback) {
   });
 };
 
-/*
-var createX509CADeviceCertificate = function(deviceId, callback) {
-  pem.createCSR( { commonName: deviceId }, function (err, csrResult) {
-    if (err) {
-      callback(err);
-    } else {
-      var certOptions = {
-        csr: csrResult.csr,
-        clientKey: csrResult.clientKey,
-        serviceKey: CARootCertKey,
-        serviceCertificate: CARootCert,
-        serial: Math.floor(Math.random() * 1000000000),
-        days: 1
-      };
-      createX509Certificate(certOptions, callback);
-    }
-  });
-};
-*/
-
 var createX509IndividualDeviceCert = function(registrationId, callback) {
   var certOptions = {
     commonName: registrationId,
@@ -119,6 +99,76 @@ var cleanupX509Individual = function(registrationId, deviceId, callback) {
   });
 };
 
+var createX509GroupCert = function(registrationId, callback) {
+  pem.createCSR( { commonName: registrationId }, function (err, csrResult) {
+    if (err) {
+      callback(err);
+    } else {
+      var certOptions = {
+        csr: csrResult.csr,
+        clientKey: csrResult.clientKey,
+        serviceKey: CARootCertKey,
+        serviceCertificate: CARootCert,
+        serial: Math.floor(Math.random() * 1000000000),
+        days: 1
+      };
+      createX509Certificate(certOptions, callback);
+    }
+  });
+};
+
+var enrollX509Group = function(registrationId, deviceId, x509, callback) {
+  var enrollment =  {
+    registrationId: registrationId,
+    deviceId: deviceId,
+    attestation: {
+      type: 'x509',
+      x509: {
+        clientCertificates: {
+          primary: {
+            certificate: new Buffer(x509.cert).toString('base64')
+          }
+        }
+      }
+    },
+    initialTwinState: {
+      desiredProperties: {
+        testProp: registrationId + ' ' + deviceId
+      }
+    }
+  };
+
+  provisioningServiceClient.createOrUpdateIndividualEnrollment(enrollment, function(err) {
+    callback(err);
+  });
+};
+
+var registerX509Group = function(Transport, registrationId, deviceCert, callback) {
+  var securityClient = new X509Security(deviceCert);
+  var transport = new Transport(idScope);
+  var provisioningDeviceClient = ProvisioningDeviceClient.create(transport, securityClient);
+  provisioningDeviceClient.register(registrationId, false, function(err, result) {
+    callback(err, result);
+  });
+};
+
+var cleanupX509Group = function(registrationId, deviceId, callback) {
+  debug('deleting enrollment');
+  provisioningServiceClient.deleteIndividualEnrollment(registrationId, function(err) {
+    if (err) {
+      debug('ignoring deleteIndividualEnrollment error');
+    }
+    debug('deleting device');
+    registry.delete(deviceId, function(err) {
+      if (err) {
+        debug('ignoring delete error');
+      }
+      debug('done X509 individual cleanup');
+      callback();
+    });
+  });
+};
+
 var assertRegistrationStatus = function(registrationId, expectedStatus, expectedDeviceId, callback) {
   provisioningServiceClient.getIndividualEnrollment(registrationId, function(err, enrollment) {
     assert(!err);
@@ -136,8 +186,16 @@ describe('IoT Provisioning', function() {
     testDescription: 'X509 Individual enrollment',
     createCert: createX509IndividualDeviceCert,
     enroll: enrollX509Indivitual,
-    cleanup: cleanupX509Individual,
     register: registerX509Individual,
+    cleanup: cleanupX509Individual,
+    transports: [Http]
+  },
+  {
+    testDescription: 'X509 group enrollment',
+    createCert: createX509GroupCert,
+    enroll: enrollX509Group,
+    register: registerX509Group,
+    cleanup: cleanupX509Group,
     transports: [Http]
   }].forEach(function(testConfiguration) {
 
